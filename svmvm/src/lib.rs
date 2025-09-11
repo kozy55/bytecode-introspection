@@ -1,13 +1,36 @@
-use pinocchio::program_error::ProgramError;
+use pinocchio::{ProgramResult, account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
+use pinocchio_pubkey::pubkey;
+
+pub const LOADER_V3: Pubkey = pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
+pub const LOADER_V4: Pubkey = pubkey!("LoaderV411111111111111111111111111111111111");
+
+#[inline(always)]
+pub fn verify_executable_account<'info>(program: &'info AccountInfo, executable: &'info AccountInfo, loader: &Pubkey) -> ProgramResult {
+    if !program.is_owned_by(&loader) {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+
+    let program_data = program.try_borrow_data()?;
+    
+    if program_data.len().lt(&36) {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    
+    if executable.key().ne(&program_data[4..36]) {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    Ok(())
+}
 
 pub const EI_MAGIC: [u8; 4] = *b"\x7fELF"; // ELF magic
-// pub const EI_CLASS: u8 = 0x02; // 64-bit
-// pub const EI_DATA: u8 = 0x01; // Little endian
-// pub const EI_VERSION: u8 = 0x01; // Version 1
-// pub const EI_OSABI: u8 = 0x00; // System V
-// pub const EI_ABIVERSION: u8 = 0x00; // No ABI version
-// pub const EI_PAD: [u8; 7] = [0u8; 7]; // Padding
-// pub const E_TYPE: u16 = 0x03; // ET_DYN - shared object
+pub const EI_CLASS: u8 = 0x02; // 64-bit
+pub const EI_DATA: u8 = 0x01; // Little endian
+pub const EI_VERSION: u8 = 0x01; // Version 1
+pub const EI_OSABI: u8 = 0x00; // System V
+pub const EI_ABIVERSION: u8 = 0x00; // No ABI version
+pub const EI_PAD: [u8; 7] = [0u8; 7]; // Padding
+pub const E_TYPE: u16 = 0x03; // ET_DYN - shared object
 pub const E_MACHINE: u16 = 0xf7; // Berkeley Packet Filter
 pub const E_MACHINE_SBPF: u16 = 0x0107; // Solana Berkeley Packet Filter
 pub const E_VERSION: u32 = 0x01; // Original version of BPF
@@ -21,7 +44,6 @@ pub const SHT_DYNSYM: u32 = 11;  // Dynamic symbol table
 pub const DYNSYM_ENTRY_SIZE: usize = 24;
 
 #[repr(C)]
-#[derive(Clone, Copy)]
 pub struct Elf64Rel {
     pub r_offset: u64,  // Location at which to apply relocation
     pub r_info: u64,    // Symbol index and type of relocation
@@ -34,20 +56,19 @@ impl Elf64Rel {
     }
 }
 
-// #[repr(C)]
-// pub struct ProgramHeader {
-//     pub p_type: u8, // An offset to a string in the .shstrtab section that represents the name of this section.
-//     pub p_flags: u8, // Identifies the type of this header.
-//     pub p_offset: u64, // Offset of the segment in the file image.
-//     pub p_vaddr: u64, // Virtual address of the segment in memory.
-//     pub p_paddr: u64, // On systems where physical address is relevant, reserved for segment's physical address.
-//     pub p_filesz: u64, // Size in bytes of the section in the file image. May be 0.
-//     pub p_memsz: u64, // Size in bytes of the segment in memory. May be 0.
-//     pub p_align: u64, // 0 and 1 specify no alignment. Otherwise should be a positive, integral power of 2, with p_vaddr equating p_offset modulus p_align.
-// }
+#[repr(C)]
+pub struct ProgramHeader {
+    pub p_type: u8, // An offset to a string in the .shstrtab section that represents the name of this section.
+    pub p_flags: u8, // Identifies the type of this header.
+    pub p_offset: u64, // Offset of the segment in the file image.
+    pub p_vaddr: u64, // Virtual address of the segment in memory.
+    pub p_paddr: u64, // On systems where physical address is relevant, reserved for segment's physical address.
+    pub p_filesz: u64, // Size in bytes of the section in the file image. May be 0.
+    pub p_memsz: u64, // Size in bytes of the segment in memory. May be 0.
+    pub p_align: u64, // 0 and 1 specify no alignment. Otherwise should be a positive, integral power of 2, with p_vaddr equating p_offset modulus p_align.
+}
 
 #[repr(C)]
-#[derive(Debug, Clone)]
 pub struct SectionHeader {
     pub sh_name: u32, // An offset to a string in the .shstrtab section that represents the name of this section.
     pub sh_type: u32, // Identifies the type of this header.
@@ -87,6 +108,7 @@ pub struct ELFHeader {
 }
 
 impl ELFHeader {
+    #[inline(always)]
     pub fn from_bytes(bytes: &[u8]) -> Result<&Self, ProgramError> {
         if bytes.len() < 64 {
             return Err(ProgramError::InvalidAccountData);
@@ -96,7 +118,7 @@ impl ELFHeader {
         // This is safe because:
         // 1. ELFHeader is repr(C) with a defined memory layout
         // 2. We've verified the slice is at least 64 bytes
-        // 3. The alignment requirements are satisfied (u8 has alignment 1)
+        // 3. The alignment requirements are satisfied (u8 has alignment 8)
         let header = unsafe { &*(bytes.as_ptr() as *const ELFHeader) };
         
         // Validate magic number
@@ -118,6 +140,7 @@ impl ELFHeader {
     }
     
     /// Verify that a syscall at a specific offset is relocated to a specific function
+    #[inline(always)]
     pub fn verify_syscall_relocation(&self, data: &[u8], syscall_offset: u64, expected_function: &str) -> Result<bool, ProgramError> {
         // Parse section headers
         let sh_offset = self.e_shoff as usize;
@@ -220,46 +243,9 @@ impl ELFHeader {
     }
 }
 
-/// Extract the target address from an LDDW (load double word) instruction
-/// N: The expected size of the rodata entry - fails at compile time if size doesn't match
-// pub fn find_lddw_target<const N: usize>(data: &[u8], lddw_offset: u64) -> Result<&[u8; N], ProgramError> {
-//     let offset = lddw_offset as usize;
-    
-//     // LDDW instruction is 16 bytes (2 x 8-byte instructions)
-//     if offset + 16 > data.len() {
-//         return Err(ProgramError::InvalidAccountData);
-//     }
-    
-//     // Extract the target address from bytes 4-7 and 12-15 of the LDDW instruction
-//     let low_bytes = u32::from_le_bytes([
-//         data[offset + 4],
-//         data[offset + 5],
-//         data[offset + 6], 
-//         data[offset + 7],
-//     ]);
-    
-//     let high_bytes = u32::from_le_bytes([
-//         data[offset + 12],
-//         data[offset + 13],
-//         data[offset + 14],
-//         data[offset + 15],
-//     ]);
-    
-//     let target_address = ((high_bytes as u64) << 32) | (low_bytes as u64);
-//     let target_offset = target_address as usize;
-    
-//     // Return an N-byte array starting at the target address
-//     if target_offset + N > data.len() {
-//         return Err(ProgramError::InvalidAccountData);
-//     }
-    
-//     // Convert the slice to a fixed-size array
-//     let slice = &data[target_offset..target_offset + N];
-//     slice.try_into().map_err(|_| ProgramError::InvalidAccountData)
-// }
-
-/// Check that an LDDW instruction loads a specific immediate value into a register
-pub fn check_lddw_imm(data: &[u8], offset: u64, dst_reg: u8, expected_value: &[u8]) -> Result<(), ProgramError> {
+/// Check that an LDDW instruction loads a reference to a specific immediate value into a register
+#[inline(always)]
+pub fn check_lddw(data: &[u8], offset: u64, dst_reg: u8, expected_value: &[u8]) -> Result<(), ProgramError> {
     let offset = offset as usize;
     
     // LDDW instruction is 16 bytes (2 x 8-byte instructions)
@@ -306,7 +292,8 @@ pub fn check_lddw_imm(data: &[u8], offset: u64, dst_reg: u8, expected_value: &[u
 }
 
 /// Check that an LDDW instruction loads a specific immediate value (for simple values)
-pub fn check_lddw_imm_u64(data: &[u8], offset: u64, expected_value: u64) -> Result<(), ProgramError> {
+#[inline(always)]
+pub fn check_lddw_imm(data: &[u8], offset: u64, expected_value: u64) -> Result<(), ProgramError> {
     let offset = offset as usize;
     
     // LDDW instruction is 16 bytes (2 x 8-byte instructions)
@@ -345,6 +332,7 @@ pub fn check_lddw_imm_u64(data: &[u8], offset: u64, expected_value: u64) -> Resu
 }
 
 /// Check that a MOV32 instruction loads a specific immediate value into a register
+#[inline(always)]
 pub fn check_mov32_imm(data: &[u8], offset: u64, dst_reg: u8, expected_value: u32) -> Result<(), ProgramError> {
     let offset = offset as usize;
     
@@ -375,6 +363,7 @@ pub fn check_mov32_imm(data: &[u8], offset: u64, dst_reg: u8, expected_value: u3
 }
 
 /// Check that a syscall instruction calls a specific function
+#[inline(always)]
 pub fn check_call(data: &[u8], offset: u64, expected_function: &str) -> Result<(), ProgramError> {
     let offset = offset as usize;
     

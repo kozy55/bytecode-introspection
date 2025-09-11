@@ -1,12 +1,9 @@
 use pinocchio::{ProgramResult, account_info::AccountInfo, cpi::invoke, entrypoint, instruction::{AccountMeta, Instruction}, program_error::ProgramError, pubkey::Pubkey};
-use pinocchio_pubkey::pubkey;
+use svmvm::{LOADER_V3, verify_executable_account};
 
-mod elf;
 mod middleware_guard;
 
 entrypoint!(process_instruction);
-
-pub const BPF_LOADER_UPGRADEABLE_ID: Pubkey = pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
 
 fn process_instruction(
     _program_id: &Pubkey,      // Public key of the account the program was loaded into
@@ -16,44 +13,12 @@ fn process_instruction(
     let [program, executable, from, to, system_program] = accounts else {
         return Err(ProgramError::InvalidAccountData);
     };
-    
-    // Executable account validation:
 
-    // 1. Verify the program account is owned by the BPF Loader Upgradeable
-    let program_data = program.try_borrow_data()?;
+    verify_executable_account(program, executable, &LOADER_V3)?;
     
-    if !program.is_owned_by(&BPF_LOADER_UPGRADEABLE_ID) {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    let executable_data = &executable.try_borrow_data()?[45..];
     
-    // 2. Verify the program account has the correct structure (type 3 = Program)
-    if program_data.len() < 36 {
-        return Err(ProgramError::InvalidAccountData);
-    }
-    
-    // let account_type = u32::from_le_bytes([
-    //     program_data[0],
-    //     program_data[1],
-    //     program_data[2],
-    //     program_data[3],
-    // ]);
-    
-    // if account_type != 3 {
-    //     return Err(ProgramError::AccountAlreadyInitialized);
-    // }
-    
-    // 3. Extract the programdata address from the program account (bytes 4-36)
-    let stored_programdata_address: &Pubkey = &program_data[4..36].try_into().unwrap();
-    
-    // 4. Verify the provided executable account matches the stored programdata address
-    if executable.key().ne(stored_programdata_address) {
-        return Err(ProgramError::InvalidAccountData);
-    }
-    
-    // 6. Optional: Validate the ELF header to ensure it's a valid sBPF executable
-    let executable_data = executable.try_borrow_data()?;
-    
-    middleware_guard::gm(&executable_data[45..])?;
+    middleware_guard::gm(executable_data)?;
 
     invoke::<3>(
         &Instruction {
